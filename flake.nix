@@ -17,6 +17,14 @@
     # This has SBCL 2.4.10 and docktuil 3.1.3 which are known to work
     nixpkgs.url = "github:NixOS/nixpkgs/af51545ec9a44eadf3fe3547610a5cdd882bc34e";
     cl-nix-lite.url = "github:hraban/cl-nix-lite";
+    # Resolve cl-nix-lite’s inputs subflake through the flake system instead
+    # of through flake-compat’s fixed-output derivations. The FOD mechanism
+    # creates a content-addressed store path with no deriver, which
+    # Determinate Nix’s lazy-trees cannot recreate on fresh machines.
+    cl-nix-lite-inputs = {
+      url = "github:hraban/cl-nix-lite?dir=inputs";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
     flake-compat = {
       # Use my own fixed-output-derivation branch because I don’t want users to
       # need to eval-time download dependencies.
@@ -37,6 +45,7 @@
       nixpkgs,
       flake-utils,
       cl-nix-lite,
+      cl-nix-lite-inputs,
       treefmt-nix,
       ...
     }:
@@ -104,7 +113,15 @@
       eachDefaultSystem (
         system:
         let
-          pkgs = nixpkgs.legacyPackages.${system}.extend cl-nix-lite.overlays.default;
+          # Use a custom overlay that imports cl-nix-lite's lisp-packages-lite.nix
+          # with inputs resolved through the flake system, bypassing flake-compat's
+          # fixed-output derivation mechanism which breaks on Determinate Nix lazy-trees.
+          pkgs = nixpkgs.legacyPackages.${system}.extend (final: prev:
+            import "${cl-nix-lite}/lisp-packages-lite.nix" {
+              inputs = cl-nix-lite-inputs.inputs;
+              pkgs = prev;
+            }
+          );
           treefmt =
             { ... }:
             {
